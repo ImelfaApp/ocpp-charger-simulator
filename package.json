@@ -1,0 +1,23 @@
+{
+  "name": "ocpp-charger-simulator",
+  "version": "1.0.0",
+  "description": "Simulador de punto de carga OCPP 1.6J para testing",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node src/index.js"
+  },
+  "keywords": [
+    "ocpp",
+    "charger",
+    "simulator",
+    "ev",
+    "charging"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^8.14.2",
+    "uuid": "^9.0.1"
+  }
+}
