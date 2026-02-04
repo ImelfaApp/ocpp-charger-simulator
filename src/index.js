@@ -40,12 +40,28 @@ const logger = {
 
 // ==================== Interfaz de comandos ====================
 function showHelp() {
+    const hasMultipleConnectors = config.chargePoint.numberOfConnectors > 1;
+    const plugCmd = hasMultipleConnectors 
+        ? '  plug [connectorId]  - Conectar vehículo al conector                '
+        : '  plug           - Conectar vehículo al conector                 ';
+    const unplugCmd = hasMultipleConnectors
+        ? '  unplug [connectorId] - Desconectar vehículo del conector           '
+        : '  unplug         - Desconectar vehículo del conector             ';
+    const startCmd = hasMultipleConnectors 
+        ? '  start [connectorId] [idTag] - Iniciar carga local               '
+        : '  start [idTag]  - Iniciar carga local (default: TESTCARD001)   ';
+    const stopCmd = hasMultipleConnectors
+        ? '  stop [connectorId]  - Detener carga en conector específico       '
+        : '  stop           - Detener carga actual                         ';
+    
     console.log(`
 ╔════════════════════════════════════════════════════════════════╗
 ║              OCPP Charger Simulator - Comandos                 ║
 ╠════════════════════════════════════════════════════════════════╣
-║  start [idTag]  - Iniciar carga local (default: TESTCARD001)   ║
-║  stop           - Detener carga actual                         ║
+║${plugCmd}║
+║${unplugCmd}║
+║${startCmd}║
+║${stopCmd}║
 ║  status         - Mostrar estado del cargador                  ║
 ║  help           - Mostrar esta ayuda                           ║
 ║  exit           - Salir del simulador                          ║
@@ -79,6 +95,7 @@ function showStatus(simulator) {
         
         console.log(`║  Transacción Activa:                                           ║`);
         console.log(`║    ID: ${tx.transactionId.toString().padEnd(54)}║`);
+        console.log(`║    Conector: ${tx.connectorId.toString().padEnd(48)}║`);
         console.log(`║    IdTag: ${tx.idTag.padEnd(51)}║`);
         console.log(`║    Duración: ${duration.toString().padEnd(48)}s ║`);
         console.log(`║    Energía: ${energyKWh.padEnd(47)}kWh ║`);
@@ -139,13 +156,64 @@ async function main() {
                 const [command, ...args] = input.trim().toLowerCase().split(' ');
                 
                 switch (command) {
+                    case 'plug':
+                    case 'connect':
+                        if (config.chargePoint.numberOfConnectors > 1) {
+                            const connectorId = args[0] ? parseInt(args[0]) : 1;
+                            if (isNaN(connectorId)) {
+                                console.log('ConnectorId debe ser un número. Uso: plug [connectorId]');
+                            } else {
+                                await simulator.simulatePlugVehicle(connectorId);
+                            }
+                        } else {
+                            await simulator.simulatePlugVehicle(1);
+                        }
+                        break;
+
+                    case 'unplug':
+                    case 'disconnect':
+                        if (config.chargePoint.numberOfConnectors > 1) {
+                            const connectorId = args[0] ? parseInt(args[0]) : 1;
+                            if (isNaN(connectorId)) {
+                                console.log('ConnectorId debe ser un número. Uso: unplug [connectorId]');
+                            } else {
+                                await simulator.simulateUnplugVehicle(connectorId);
+                            }
+                        } else {
+                            await simulator.simulateUnplugVehicle(1);
+                        }
+                        break;
+
                     case 'start':
-                        const idTag = args[0] || 'TESTCARD001';
-                        await simulator.simulateLocalStartTransaction(idTag.toUpperCase());
+                        if (config.chargePoint.numberOfConnectors > 1) {
+                            // Modo múltiples conectores: start [connectorId] [idTag]
+                            const connectorId = args[0] ? parseInt(args[0]) : 1;
+                            const idTag = args[1] || 'TESTCARD001';
+                            if (isNaN(connectorId)) {
+                                console.log('ConnectorId debe ser un número. Uso: start [connectorId] [idTag]');
+                            } else {
+                                await simulator.simulateLocalStartTransaction(connectorId, idTag.toUpperCase());
+                            }
+                        } else {
+                            // Modo un solo conector: start [idTag]
+                            const idTag = args[0] || 'TESTCARD001';
+                            await simulator.simulateLocalStartTransaction(1, idTag.toUpperCase());
+                        }
                         break;
                         
                     case 'stop':
-                        await simulator.simulateLocalStopTransaction();
+                        if (config.chargePoint.numberOfConnectors > 1 && args[0]) {
+                            // Modo múltiples conectores: stop [connectorId]
+                            const connectorId = parseInt(args[0]);
+                            if (isNaN(connectorId)) {
+                                console.log('ConnectorId debe ser un número. Uso: stop [connectorId]');
+                            } else {
+                                await simulator.simulateLocalStopTransaction(connectorId);
+                            }
+                        } else {
+                            // Modo un solo conector o sin especificar: stop
+                            await simulator.simulateLocalStopTransaction();
+                        }
                         break;
                         
                     case 'status':
@@ -189,13 +257,64 @@ async function main() {
                     const [command, ...args] = input.trim().toLowerCase().split(' ');
                     
                     switch (command) {
+                        case 'plug':
+                        case 'connect':
+                            if (config.chargePoint.numberOfConnectors > 1) {
+                                const connectorId = args[0] ? parseInt(args[0]) : 1;
+                                if (isNaN(connectorId)) {
+                                    console.log('ConnectorId debe ser un número. Uso: plug [connectorId]');
+                                } else {
+                                    await simulator.simulatePlugVehicle(connectorId);
+                                }
+                            } else {
+                                await simulator.simulatePlugVehicle(1);
+                            }
+                            break;
+
+                        case 'unplug':
+                        case 'disconnect':
+                            if (config.chargePoint.numberOfConnectors > 1) {
+                                const connectorId = args[0] ? parseInt(args[0]) : 1;
+                                if (isNaN(connectorId)) {
+                                    console.log('ConnectorId debe ser un número. Uso: unplug [connectorId]');
+                                } else {
+                                    await simulator.simulateUnplugVehicle(connectorId);
+                                }
+                            } else {
+                                await simulator.simulateUnplugVehicle(1);
+                            }
+                            break;
+
                         case 'start':
-                            const idTag = args[0] || 'TESTCARD001';
-                            await simulator.simulateLocalStartTransaction(idTag.toUpperCase());
+                            if (config.chargePoint.numberOfConnectors > 1) {
+                                // Modo múltiples conectores: start [connectorId] [idTag]
+                                const connectorId = args[0] ? parseInt(args[0]) : 1;
+                                const idTag = args[1] || 'TESTCARD001';
+                                if (isNaN(connectorId)) {
+                                    console.log('ConnectorId debe ser un número. Uso: start [connectorId] [idTag]');
+                                } else {
+                                    await simulator.simulateLocalStartTransaction(connectorId, idTag.toUpperCase());
+                                }
+                            } else {
+                                // Modo un solo conector: start [idTag]
+                                const idTag = args[0] || 'TESTCARD001';
+                                await simulator.simulateLocalStartTransaction(1, idTag.toUpperCase());
+                            }
                             break;
                             
                         case 'stop':
-                            await simulator.simulateLocalStopTransaction();
+                            if (config.chargePoint.numberOfConnectors > 1 && args[0]) {
+                                // Modo múltiples conectores: stop [connectorId]
+                                const connectorId = parseInt(args[0]);
+                                if (isNaN(connectorId)) {
+                                    console.log('ConnectorId debe ser un número. Uso: stop [connectorId]');
+                                } else {
+                                    await simulator.simulateLocalStopTransaction(connectorId);
+                                }
+                            } else {
+                                // Modo un solo conector o sin especificar: stop
+                                await simulator.simulateLocalStopTransaction();
+                            }
                             break;
                             
                         case 'status':

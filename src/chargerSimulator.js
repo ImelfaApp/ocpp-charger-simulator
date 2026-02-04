@@ -30,7 +30,9 @@ class ChargerSimulator {
             // Configuración
             configuration: {
                 MeterValueSampleInterval: config.simulator.meterValueSampleInterval.toString()
-            }
+            },
+            // RemoteStartTransaction pendientes (por connectorId)
+            pendingRemoteStart: {}
         };
 
         // Intervalos activos
@@ -314,13 +316,8 @@ class ChargerSimulator {
             const energyDelivered = (payload.meterStop - transaction.meterStart) / 1000;
             this.logger.info(`Transacción ${transaction.transactionId} detenida. Energía entregada: ${energyDelivered.toFixed(2)} kWh`);
             
-            // Cambiar estado a Finishing y luego a Available
+            // Cambiar estado a Finishing - el vehículo sigue conectado esperando desconexión física
             await this.sendStatusNotification(transaction.connectorId, ConnectorStatus.FINISHING);
-            
-            // Simular desconexión del vehículo
-            setTimeout(async () => {
-                await this.sendStatusNotification(transaction.connectorId, ConnectorStatus.AVAILABLE);
-            }, 2000);
 
             this.state.activeTransaction = null;
 
@@ -439,9 +436,11 @@ class ChargerSimulator {
             return;
         }
 
-        // Verificar si el conector está disponible
-        if (this.state.connectors[connectorId].status !== ConnectorStatus.AVAILABLE) {
-            this.logger.warn(`Conector ${connectorId} no disponible`);
+        const connectorStatus = this.state.connectors[connectorId].status;
+
+        // Verificar si el conector está disponible o preparado (vehículo conectado)
+        if (connectorStatus !== ConnectorStatus.AVAILABLE && connectorStatus !== ConnectorStatus.PREPARING) {
+            this.logger.warn(`Conector ${connectorId} no disponible para RemoteStart. Estado actual: ${connectorStatus}`);
             this.client.callResult(messageId, { status: 'Rejected' });
             return;
         }
@@ -449,13 +448,18 @@ class ChargerSimulator {
         // Aceptar la petición
         this.client.callResult(messageId, { status: 'Accepted' });
 
-        // Cambiar estado a Preparing
-        await this.sendStatusNotification(connectorId, ConnectorStatus.PREPARING);
+        // Si está Available, guardar el RemoteStart pendiente y esperar conexión del vehículo
+        if (connectorStatus === ConnectorStatus.AVAILABLE) {
+            this.logger.info(`RemoteStart aceptado. Esperando conexión de vehículo en conector ${connectorId}...`);
+            this.state.pendingRemoteStart[connectorId] = { idTag };
+            // Cambiar a Reserved para indicar que hay una carga pendiente
+            await this.sendStatusNotification(connectorId, ConnectorStatus.RESERVED);
+            return;
+        }
 
-        // Simular conexión del cable (pequeño delay)
-        setTimeout(async () => {
-            await this.sendStartTransaction(connectorId, idTag);
-        }, 1000);
+        // Si ya está Preparing (vehículo conectado), iniciar la transacción directamente
+        this.logger.info(`Vehículo ya conectado. Iniciando transacción remota con IdTag: ${idTag}`);
+        await this.sendStartTransaction(connectorId, idTag);
     }
 
     /**
@@ -515,35 +519,113 @@ class ChargerSimulator {
     // ==================== Métodos de utilidad para testing manual ====================
 
     /**
+     * Simular conexión de vehículo (plug)
+     */
+    async simulatePlugVehicle(connectorId = 1) {
+        // Validar connectorId
+        if (connectorId < 1 || connectorId > this.config.chargePoint.numberOfConnectors) {
+            this.logger.warn(`Conector ${connectorId} no existe. Conectores disponibles: 1-${this.config.chargePoint.numberOfConnectors}`);
+            return;
+        }
+
+        const status = this.state.connectors[connectorId].status;
+
+        // Permitir plug desde Available o Reserved
+        if (status !== ConnectorStatus.AVAILABLE && status !== ConnectorStatus.RESERVED) {
+            this.logger.warn(`Conector ${connectorId} no está disponible. Estado actual: ${status}`);
+            return;
+        }
+
+        this.logger.info(`Simulando conexión de vehículo en conector ${connectorId}`);
+        await this.sendStatusNotification(connectorId, ConnectorStatus.PREPARING);
+
+        // Si hay un RemoteStart pendiente, iniciar la transacción automáticamente
+        if (this.state.pendingRemoteStart[connectorId]) {
+            const { idTag } = this.state.pendingRemoteStart[connectorId];
+            delete this.state.pendingRemoteStart[connectorId];
+            
+            this.logger.info(`Detectado RemoteStart pendiente. Iniciando transacción con IdTag: ${idTag}`);
+            // Pequeño delay para simular el proceso
+            setTimeout(async () => {
+                await this.sendStartTransaction(connectorId, idTag);
+            }, 500);
+        }
+    }
+
+    /**
+     * Simular desconexión de vehículo (unplug)
+     */
+    async simulateUnplugVehicle(connectorId = 1) {
+        // Validar connectorId
+        if (connectorId < 1 || connectorId > this.config.chargePoint.numberOfConnectors) {
+            this.logger.warn(`Conector ${connectorId} no existe. Conectores disponibles: 1-${this.config.chargePoint.numberOfConnectors}`);
+            return;
+        }
+
+        const status = this.state.connectors[connectorId].status;
+
+        // No se puede desconectar si hay una transacción activa en este conector
+        if (this.state.activeTransaction && this.state.activeTransaction.connectorId === connectorId) {
+            if (status === ConnectorStatus.CHARGING) {
+                this.logger.warn(`No se puede desconectar el conector ${connectorId} mientras está cargando. Usa 'stop' primero.`);
+                return;
+            }
+        }
+
+        // Solo se puede desconectar desde ciertos estados
+        if (![ConnectorStatus.PREPARING, ConnectorStatus.FINISHING, ConnectorStatus.SUSPENDED_EV, ConnectorStatus.SUSPENDED_EVSE].includes(status)) {
+            this.logger.warn(`No se puede desconectar desde el estado: ${status}`);
+            return;
+        }
+
+        this.logger.info(`Simulando desconexión de vehículo en conector ${connectorId}`);
+        await this.sendStatusNotification(connectorId, ConnectorStatus.AVAILABLE);
+    }
+
+    /**
      * Simular inicio de carga local (para testing)
      */
-    async simulateLocalStartTransaction(idTag = 'TESTCARD001') {
-        const connectorId = 1;
+    async simulateLocalStartTransaction(connectorId = 1, idTag = 'TESTCARD001') {
+        // Validar connectorId
+        if (connectorId < 1 || connectorId > this.config.chargePoint.numberOfConnectors) {
+            this.logger.warn(`Conector ${connectorId} no existe. Conectores disponibles: 1-${this.config.chargePoint.numberOfConnectors}`);
+            return;
+        }
         
         if (this.state.activeTransaction) {
             this.logger.warn('Ya hay una transacción activa');
             return;
         }
 
-        if (this.state.connectors[connectorId].status !== ConnectorStatus.AVAILABLE) {
-            this.logger.warn('Conector no disponible');
+        const status = this.state.connectors[connectorId].status;
+
+        // Si está Available, primero conectar el vehículo
+        if (status === ConnectorStatus.AVAILABLE) {
+            this.logger.info(`Conectando vehículo en conector ${connectorId}...`);
+            await this.sendStatusNotification(connectorId, ConnectorStatus.PREPARING);
+            // Pequeño delay para simular la conexión física
+            await new Promise(resolve => setTimeout(resolve, 500));
+        } else if (status !== ConnectorStatus.PREPARING) {
+            this.logger.warn(`Conector ${connectorId} no disponible. Estado actual: ${status}`);
             return;
         }
 
-        this.logger.info(`Simulando inicio de carga local con IdTag: ${idTag}`);
-        await this.sendStatusNotification(connectorId, ConnectorStatus.PREPARING);
-        
-        setTimeout(async () => {
-            await this.sendStartTransaction(connectorId, idTag);
-        }, 1000);
+        this.logger.info(`Iniciando transacción con IdTag: ${idTag}`);
+        await this.sendStartTransaction(connectorId, idTag);
     }
 
     /**
      * Simular fin de carga local (para testing)
      */
-    async simulateLocalStopTransaction() {
+    async simulateLocalStopTransaction(connectorId = null) {
         if (!this.state.activeTransaction) {
             this.logger.warn('No hay transacción activa');
+            return;
+        }
+
+        // Si se especifica un connectorId, verificar que coincida con la transacción activa
+        if (connectorId !== null && this.state.activeTransaction.connectorId !== connectorId) {
+            this.logger.warn(`No hay transacción activa en el conector ${connectorId}`);
             return;
         }
 

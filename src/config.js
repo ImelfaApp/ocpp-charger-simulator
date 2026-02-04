@@ -12,7 +12,7 @@ module.exports = {
         model: 'VirtualCharger',
         serialNumber: 'SN-001',
         firmwareVersion: '1.0.0',
-        numberOfConnectors: 1
+        numberOfConnectors: 2 // Número de conectores (1 o 2)
     },
 
     // Configuración del simulador

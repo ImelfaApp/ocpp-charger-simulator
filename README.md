@@ -38,7 +38,7 @@ module.exports = {
         id: 'CP001',                // ID del punto de carga
         vendor: 'SimulatorVendor',  // Fabricante
         model: 'VirtualCharger',    // Modelo
-        numberOfConnectors: 1       // Número de conectores
+        numberOfConnectors: 1       // Número de conectores (1 o 2)
     },
     simulator: {
         meterValueSampleInterval: 60,  // Intervalo de MeterValues (segundos)
@@ -73,20 +73,41 @@ OCPP_SERVER_URL=ws://tu-servidor:9000 CHARGE_POINT_ID=CP002 npm start
 
 Una vez conectado, puedes usar los siguientes comandos:
 
+#### Con 1 conector configurado:
+
 | Comando | Descripción |
 |---------|-------------|
-| `start [idTag]` | Iniciar una carga local con el idTag especificado (default: TESTCARD001) |
-| `stop` | Detener la carga actual |
+| `plug` | Conectar vehículo al conector (Available → Preparing) |
+| `unplug` | Desconectar vehículo del conector (Preparing/Finishing → Available) |
+| `start [idTag]` | Iniciar transacción de carga (auto-conecta si es necesario, default idTag: TESTCARD001) |
+| `stop` | Detener la carga actual (Charging → Finishing) |
+| `status` | Mostrar el estado actual del cargador |
+| `help` | Mostrar ayuda |
+| `exit` | Salir del simulador |
+
+#### Con 2 conectores configurados:
+
+| Comando | Descripción |
+|---------|-------------|
+| `plug [connectorId]` | Conectar vehículo al conector especificado (Available → Preparing) |
+| `unplug [connectorId]` | Desconectar vehículo del conector especificado (Preparing/Finishing → Available) |
+| `start [connectorId] [idTag]` | Iniciar transacción en el conector (auto-conecta si es necesario, defaults: connectorId=1, idTag=TESTCARD001) |
+| `stop [connectorId]` | Detener la carga en el conector especificado (Charging → Finishing) |
 | `status` | Mostrar el estado actual del cargador |
 | `help` | Mostrar ayuda |
 | `exit` | Salir del simulador |
 
 ### Ejemplo de sesión
 
+#### Flujo completo con comandos separados (1 conector):
+
 ```
-> start CARD123
-[INFO] Simulando inicio de carga local con IdTag: CARD123
+> plug
+[INFO] Simulando conexión de vehículo en conector 1
 [INFO] StatusNotification enviado para conector 1: Preparing
+
+> start CARD123
+[INFO] Iniciando transacción con IdTag: CARD123
 [INFO] Transacción iniciada. ID: 12345
 [INFO] StatusNotification enviado para conector 1: Charging
 
@@ -96,11 +117,12 @@ Una vez conectado, puedes usar los siguientes comandos:
 ╠════════════════════════════════════════════════════════════════╣
 ║  Charge Point ID: CP001                                        ║
 ║  Conectores:                                                   ║
-║    Cargador: Charging                                          ║
+║    Cargador: Available                                         ║
 ║    Conector 1: Charging                                        ║
 ╠════════════════════════════════════════════════════════════════╣
 ║  Transacción Activa:                                           ║
 ║    ID: 12345                                                   ║
+║    Conector: 1                                                 ║
 ║    IdTag: CARD123                                              ║
 ║    Duración: 120s                                              ║
 ║    Energía: 0.61 kWh                                           ║
@@ -109,6 +131,65 @@ Una vez conectado, puedes usar los siguientes comandos:
 > stop
 [INFO] Simulando fin de carga local
 [INFO] Transacción 12345 detenida. Energía entregada: 0.61 kWh
+[INFO] StatusNotification enviado para conector 1: Finishing
+
+> unplug
+[INFO] Simulando desconexión de vehículo en conector 1
+[INFO] StatusNotification enviado para conector 1: Available
+```
+
+#### Flujo simplificado (auto-conexión):
+
+```
+> start CARD123
+[INFO] Conectando vehículo en conector 1...
+[INFO] StatusNotification enviado para conector 1: Preparing
+[INFO] Iniciando transacción con IdTag: CARD123
+[INFO] Transacción iniciada. ID: 12345
+
+> stop
+[INFO] Transacción 12345 detenida. Energía entregada: 0.45 kWh
+```
+
+#### Con 2 conectores:
+
+```
+> plug 1
+[INFO] Simulando conexión de vehículo en conector 1
+[INFO] StatusNotification enviado para conector 1: Preparing
+
+> plug 2
+[INFO] Simulando conexión de vehículo en conector 2
+[INFO] StatusNotification enviado para conector 2: Preparing
+
+> start 1 CARD123
+[INFO] Iniciando transacción con IdTag: CARD123
+[INFO] Transacción iniciada. ID: 12345
+
+> status
+╔════════════════════════════════════════════════════════════════╗
+║                    Estado del Cargador                         ║
+╠════════════════════════════════════════════════════════════════╣
+║  Charge Point ID: CP001                                        ║
+║  Conectores:                                                   ║
+║    Cargador: Available                                         ║
+║    Conector 1: Charging                                        ║
+║    Conector 2: Preparing                                       ║
+╠════════════════════════════════════════════════════════════════╣
+║  Transacción Activa:                                           ║
+║    ID: 12345                                                   ║
+║    Conector: 1                                                 ║
+║    IdTag: CARD123                                              ║
+║    Duración: 45s                                               ║
+║    Energía: 0.25 kWh                                           ║
+╚════════════════════════════════════════════════════════════════╝
+
+> stop 1
+[INFO] Transacción 12345 detenida. Energía entregada: 0.25 kWh
+
+> unplug 1
+[INFO] Simulando desconexión de vehículo en conector 1
+[INFO] StatusNotification enviado para conector 1: Available
 ```
 
 ## Flujo de comunicación
@@ -119,20 +200,31 @@ Una vez conectado, puedes usar los siguientes comandos:
 3. Si es aceptado, envía `StatusNotification` para cada conector
 4. Inicia el envío periódico de `Heartbeat`
 
-### Secuencia de carga (iniciada localmente)
-1. Usuario ejecuta comando `start`
-2. Se envía `StatusNotification` (Preparing)
+### Secuencia de carga completa (paso a paso)
+1. Usuario ejecuta comando `plug [connectorId]`
+2. Se envía `StatusNotification` (Available → Preparing)
+3. Usuario ejecuta comando `start [connectorId] [idTag]`
+4. Se envía `StartTransaction`
+5. Si es aceptado, se envía `StatusNotification` (Preparing → Charging)
+6. Se envían `MeterValues` periódicamente
+7. Usuario ejecuta comando `stop [connectorId]`
+8. Se envía `StopTransaction`
+9. Se envía `StatusNotification` (Charging → Finishing)
+10. Usuario ejecuta comando `unplug [connectorId]`
+11. Se envía `StatusNotification` (Finishing → Available)
+
+### Secuencia de carga simplificada (auto-conexión)
+1. Usuario ejecuta comando `start [idTag]`
+2. Si el conector está Available, automáticamente se envía `StatusNotification` (Available → Preparing)
 3. Se envía `StartTransaction`
-4. Si es aceptado, se envía `StatusNotification` (Charging)
-5. Se envían `MeterValues` periódicamente
-6. Usuario ejecuta comando `stop`
-7. Se envía `StopTransaction`
-8. Se envía `StatusNotification` (Finishing → Available)
+4. Continúa como en el flujo completo desde el paso 5
 
 ### Secuencia de carga (iniciada remotamente)
 1. Servidor envía `RemoteStartTransaction`
 2. Simulador responde con status `Accepted`
-3. Se sigue la misma secuencia que la carga local
+3. Se envía `StatusNotification` (Available → Preparing)
+4. Se envía `StartTransaction`
+5. Se sigue la misma secuencia que la carga local
 
 ## Estructura del proyecto
 
