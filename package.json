@@ -2,7 +2,10 @@
   "name": "ocpp-charger-simulator",
   "version": "1.0.0",
   "description": "Simulador de punto de carga OCPP 1.6J para testing",
-  "main": "src/index.js",
+  "main": "src/lib.js",
+  "bin": {
+    "ocpp-simulator": "src/index.js"
+  },
   "scripts": {
     "start": "node src/index.js",
     "dev": "node src/index.js"
@@ -12,12 +15,25 @@
     "charger",
     "simulator",
     "ev",
-    "charging"
+    "charging",
+    "testing",
+    "ocpp1.6"
   ],
   "author": "",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/osbarciela/ocpp-charger-simulator.git"
+  },
+  "bugs": {
+    "url": "https://github.com/osbarciela/ocpp-charger-simulator/issues"
+  },
+  "homepage": "https://github.com/osbarciela/ocpp-charger-simulator#readme",
   "dependencies": {
     "ws": "^8.14.2",
     "uuid": "^9.0.1"
+  },
+  "engines": {
+    "node": ">=14.0.0"
   }
 }

@@ -21,9 +21,70 @@ Este simulador implementa los siguientes mensajes OCPP 1.6:
 
 ## Instalación
 
+### Como aplicación standalone (CLI)
+
 ```bash
+git clone https://github.com/TU_USUARIO/ocpp-charger-simulator.git
+cd ocpp-charger-simulator
 npm install
 ```
+
+### Como dependencia en otro proyecto
+
+Puedes instalar este simulador directamente desde GitHub en tus proyectos:
+
+```bash
+# Instalar desde GitHub (última versión)
+npm install github:TU_USUARIO/ocpp-charger-simulator
+
+# O desde una rama específica
+npm install github:TU_USUARIO/ocpp-charger-simulator#main
+
+# O desde un tag/release específico
+npm install github:TU_USUARIO/ocpp-charger-simulator#v1.0.0
+```
+
+O agregarlo directamente en tu `package.json`:
+
+```json
+{
+  "dependencies": {
+    "ocpp-charger-simulator": "github:TU_USUARIO/ocpp-charger-simulator#main"
+  }
+}
+```
+
+## Uso
+
+### Como aplicación standalone (CLI)
+
+```bash
+npm start
+```
+
+### Como librería en otro proyecto
+
+```javascript
+const { createSimulator } = require('ocpp-charger-simulator');
+
+// Crear y conectar simulador
+const simulator = createSimulator({
+    serverUrl: 'ws://localhost:8080/ocpp/',
+    chargePointId: 'TEST-CP-001',
+    numberOfConnectors: 1
+});
+
+await simulator.start();
+
+// Simular carga
+await simulator.simulatePlugVehicle(1);
+await simulator.simulateLocalStartTransaction(1, 'CARD123');
+
+// Detener
+simulator.stop();
+```
+
+Ver más ejemplos en [examples/README.md](examples/README.md).
 
 ## Configuración
 
