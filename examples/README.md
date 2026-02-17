@@ -151,9 +151,9 @@ describe('OCPP Backend Tests', () => {
         await simulator.simulatePlugVehicle(1);
         await simulator.simulateLocalStartTransaction(1, 'CARD123');
         
-        // Verificar que la transacción esté activa
-        expect(simulator.state.activeTransaction).toBeTruthy();
-        expect(simulator.state.activeTransaction.idTag).toBe('CARD123');
+        // Verificar que la transacción esté activa en el conector 1
+        expect(simulator.state.activeTransactions[1]).toBeTruthy();
+        expect(simulator.state.activeTransactions[1].idTag).toBe('CARD123');
     });
 
     it('debería responder a RemoteStartTransaction', (done) => {
@@ -177,14 +177,17 @@ describe('OCPP Backend Tests', () => {
 // Estado de los conectores
 console.log(simulator.state.connectors);
 // { 0: { status: 'Available', errorCode: 'NoError' }, 
-//   1: { status: 'Charging', errorCode: 'NoError' } }
+//   1: { status: 'Charging', errorCode: 'NoError' },
+//   2: { status: 'Available', errorCode: 'NoError' } }
 
-// Transacción activa
-console.log(simulator.state.activeTransaction);
-// { transactionId: 12345, connectorId: 1, idTag: 'CARD123', ... }
+// Transacciones activas (indexadas por connectorId)
+console.log(simulator.state.activeTransactions);
+// { 1: { transactionId: 12345, connectorId: 1, idTag: 'CARD123', ... },
+//   2: { transactionId: 12346, connectorId: 2, idTag: 'CARD456', ... } }
 
-// Valor del medidor
-console.log(simulator.state.meterValue); // Wh
+// Valores del medidor por conector (en Wh)
+console.log(simulator.state.meterValues);
+// { 1: 1500, 2: 2300 }
 ```
 ## Ejemplo con 2 conectores
 

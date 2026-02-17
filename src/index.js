@@ -71,7 +71,6 @@ function showHelp() {
 
 function showStatus(simulator) {
     const state = simulator.state;
-    const tx = state.activeTransaction;
     
     console.log(`
 ╔════════════════════════════════════════════════════════════════╗
@@ -88,23 +87,32 @@ function showStatus(simulator) {
     
     console.log(`╠════════════════════════════════════════════════════════════════╣`);
     
-    if (tx) {
-        const duration = Math.round((new Date() - tx.startTime) / 1000);
-        const energyWh = state.meterValue - tx.meterStart;
-        const energyKWh = (energyWh / 1000).toFixed(2);
-        
-        console.log(`║  Transacción Activa:                                           ║`);
-        console.log(`║    ID: ${tx.transactionId.toString().padEnd(54)}║`);
-        console.log(`║    Conector: ${tx.connectorId.toString().padEnd(48)}║`);
-        console.log(`║    IdTag: ${tx.idTag.padEnd(51)}║`);
-        console.log(`║    Duración: ${duration.toString().padEnd(48)}s ║`);
-        console.log(`║    Energía: ${energyKWh.padEnd(47)}kWh ║`);
+    // Mostrar transacciones activas
+    const activeTransactions = Object.entries(state.activeTransactions);
+    if (activeTransactions.length > 0) {
+        console.log(`║  Transacciones Activas:                                        ║`);
+        activeTransactions.forEach(([connId, tx]) => {
+            const duration = Math.round((new Date() - tx.startTime) / 1000);
+            const energyWh = state.meterValues[connId] - tx.meterStart;
+            const energyKWh = (energyWh / 1000).toFixed(2);
+            
+            console.log(`║                                                                ║`);
+            console.log(`║    Conector ${connId}:                                                ║`);
+            console.log(`║      ID: ${tx.transactionId.toString().padEnd(52)}║`);
+            console.log(`║      IdTag: ${tx.idTag.padEnd(49)}║`);
+            console.log(`║      Duración: ${duration.toString().padEnd(46)}s ║`);
+            console.log(`║      Energía: ${energyKWh.padEnd(45)}kWh ║`);
+        });
     } else {
-        console.log(`║  No hay transacción activa                                     ║`);
+        console.log(`║  No hay transacciones activas                                  ║`);
     }
     
     console.log(`╠════════════════════════════════════════════════════════════════╣`);
-    console.log(`║  MeterValue actual: ${Math.round(state.meterValue).toString().padEnd(40)}Wh ║`);
+    console.log(`║  MeterValues:                                                  ║`);
+    for (let i = 1; i <= config.chargePoint.numberOfConnectors; i++) {
+        const meterValue = Math.round(state.meterValues[i] || 0);
+        console.log(`║    Conector ${i}: ${meterValue.toString().padEnd(46)}Wh ║`);
+    }
     console.log(`║  MeterValueSampleInterval: ${state.configuration.MeterValueSampleInterval.padEnd(33)}s ║`);
     console.log(`╚════════════════════════════════════════════════════════════════╝`);
 }

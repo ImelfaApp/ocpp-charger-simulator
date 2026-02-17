@@ -1,6 +1,6 @@
 {
   "name": "ocpp-charger-simulator",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Simulador de punto de carga OCPP 1.6J para testing",
   "main": "src/lib.js",
   "bin": {
