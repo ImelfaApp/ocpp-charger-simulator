@@ -23,10 +23,10 @@ class ChargerSimulator {
         this.state = {
             // Estado de los conectores (indexado por connectorId)
             connectors: {},
-            // Transacción activa (si existe)
-            activeTransaction: null,
-            // Valor actual del medidor en Wh
-            meterValue: config.simulator.charging.initialMeterValue,
+            // Transacciones activas (indexadas por connectorId)
+            activeTransactions: {},
+            // Valores del medidor en Wh (por connectorId)
+            meterValues: {},
             // Configuración
             configuration: {
                 MeterValueSampleInterval: config.simulator.meterValueSampleInterval.toString()
@@ -38,7 +38,8 @@ class ChargerSimulator {
         // Intervalos activos
         this.heartbeatInterval = null;
         this.meterValueInterval = null;
-        this.chargingSimulationInterval = null;
+        // Intervalos de simulación de carga por conector
+        this.chargingSimulationIntervals = {};
 
         // Inicializar conectores
         for (let i = 0; i <= config.chargePoint.numberOfConnectors; i++) {
@@ -46,6 +47,10 @@ class ChargerSimulator {
                 status: ConnectorStatus.AVAILABLE,
                 errorCode: 'NoError'
             };
+            // Inicializar medidor para cada conector
+            if (i > 0) {
+                this.state.meterValues[i] = config.simulator.charging.initialMeterValue;
+            }
         }
 
         // Configurar manejadores de eventos
@@ -252,7 +257,7 @@ class ChargerSimulator {
         const payload = {
             connectorId: connectorId,
             idTag: idTag,
-            meterStart: Math.round(this.state.meterValue),
+            meterStart: Math.round(this.state.meterValues[connectorId]),
             timestamp: new Date().toISOString()
         };
 
@@ -260,7 +265,7 @@ class ChargerSimulator {
             const response = await this.client.call('StartTransaction', payload);
             
             if (response.idTagInfo.status === 'Accepted') {
-                this.state.activeTransaction = {
+                this.state.activeTransactions[connectorId] = {
                     transactionId: response.transactionId,
                     connectorId: connectorId,
                     idTag: idTag,
@@ -268,14 +273,18 @@ class ChargerSimulator {
                     startTime: new Date()
                 };
 
-                this.logger.info(`Transacción iniciada. ID: ${response.transactionId}`);
+                this.logger.info(`Transacción iniciada en conector ${connectorId}. ID: ${response.transactionId}`);
                 
                 // Cambiar estado a Charging
                 await this.sendStatusNotification(connectorId, ConnectorStatus.CHARGING);
                 
-                // Iniciar simulación de carga y envío de MeterValues
-                this.startChargingSimulation();
-                this.startMeterValueInterval();
+                // Iniciar simulación de carga para este conector
+                this.startChargingSimulation(connectorId);
+                
+                // Iniciar MeterValues si no está ya activo
+                if (!this.meterValueInterval) {
+                    this.startMeterValueInterval();
+                }
             } else {
                 this.logger.warn(`StartTransaction rechazado: ${response.idTagInfo.status}`);
                 await this.sendStatusNotification(connectorId, ConnectorStatus.AVAILABLE);
@@ -291,35 +300,39 @@ class ChargerSimulator {
     /**
      * Enviar StopTransaction
      */
-    async sendStopTransaction(reason = 'Local') {
-        if (!this.state.activeTransaction) {
-            this.logger.warn('No hay transacción activa para detener');
+    async sendStopTransaction(connectorId, reason = 'Local') {
+        if (!this.state.activeTransactions[connectorId]) {
+            this.logger.warn(`No hay transacción activa en conector ${connectorId} para detener`);
             return null;
         }
 
-        const transaction = this.state.activeTransaction;
+        const transaction = this.state.activeTransactions[connectorId];
         const payload = {
             transactionId: transaction.transactionId,
             idTag: transaction.idTag,
-            meterStop: Math.round(this.state.meterValue),
+            meterStop: Math.round(this.state.meterValues[connectorId]),
             timestamp: new Date().toISOString(),
             reason: reason
         };
 
         try {
-            // Detener simulación de carga
-            this.stopChargingSimulation();
-            this.stopMeterValueInterval();
+            // Detener simulación de carga para este conector
+            this.stopChargingSimulation(connectorId);
+            
+            // Detener MeterValues solo si no hay más transacciones activas
+            if (Object.keys(this.state.activeTransactions).length === 1) {
+                this.stopMeterValueInterval();
+            }
 
             const response = await this.client.call('StopTransaction', payload);
             
             const energyDelivered = (payload.meterStop - transaction.meterStart) / 1000;
-            this.logger.info(`Transacción ${transaction.transactionId} detenida. Energía entregada: ${energyDelivered.toFixed(2)} kWh`);
+            this.logger.info(`Transacción ${transaction.transactionId} en conector ${connectorId} detenida. Energía entregada: ${energyDelivered.toFixed(2)} kWh`);
             
             // Cambiar estado a Finishing - el vehículo sigue conectado esperando desconexión física
-            await this.sendStatusNotification(transaction.connectorId, ConnectorStatus.FINISHING);
+            await this.sendStatusNotification(connectorId, ConnectorStatus.FINISHING);
 
-            this.state.activeTransaction = null;
+            delete this.state.activeTransactions[connectorId];
 
             return response;
         } catch (error) {
@@ -329,21 +342,22 @@ class ChargerSimulator {
     }
 
     /**
-     * Enviar MeterValues
+     * Enviar MeterValues para un conector específico
      */
-    async sendMeterValues() {
-        if (!this.state.activeTransaction) {
+    async sendMeterValues(connectorId) {
+        if (!this.state.activeTransactions[connectorId]) {
             return;
         }
 
+        const transaction = this.state.activeTransactions[connectorId];
         const payload = {
-            connectorId: this.state.activeTransaction.connectorId,
-            transactionId: this.state.activeTransaction.transactionId,
+            connectorId: connectorId,
+            transactionId: transaction.transactionId,
             meterValue: [{
                 timestamp: new Date().toISOString(),
                 sampledValue: [
                     {
-                        value: Math.round(this.state.meterValue).toString(),
+                        value: Math.round(this.state.meterValues[connectorId]).toString(),
                         context: 'Sample.Periodic',
                         measurand: 'Energy.Active.Import.Register',
                         unit: 'Wh'
@@ -360,40 +374,40 @@ class ChargerSimulator {
 
         try {
             await this.client.call('MeterValues', payload);
-            this.logger.debug(`MeterValues enviado: ${Math.round(this.state.meterValue)} Wh`);
+            this.logger.debug(`MeterValues enviado para conector ${connectorId}: ${Math.round(this.state.meterValues[connectorId])} Wh`);
         } catch (error) {
-            this.logger.error(`Error en MeterValues: ${error.message}`);
+            this.logger.error(`Error en MeterValues para conector ${connectorId}: ${error.message}`);
         }
     }
 
     /**
-     * Iniciar simulación de carga (incrementar medidor)
+     * Iniciar simulación de carga para un conector específico
      */
-    startChargingSimulation() {
-        // Simular consumo cada segundo
-        this.chargingSimulationInterval = setInterval(() => {
+    startChargingSimulation(connectorId) {
+        // Simular consumo cada segundo para este conector
+        this.chargingSimulationIntervals[connectorId] = setInterval(() => {
             // Incrementar el medidor basándose en la potencia de carga
             // Potencia en W / 3600 = Wh por segundo
             const whPerSecond = this.config.simulator.charging.chargingPower / 3600;
-            this.state.meterValue += whPerSecond;
+            this.state.meterValues[connectorId] += whPerSecond;
         }, 1000);
 
-        this.logger.info('Simulación de carga iniciada');
+        this.logger.info(`Simulación de carga iniciada en conector ${connectorId}`);
     }
 
     /**
-     * Detener simulación de carga
+     * Detener simulación de carga para un conector específico
      */
-    stopChargingSimulation() {
-        if (this.chargingSimulationInterval) {
-            clearInterval(this.chargingSimulationInterval);
-            this.chargingSimulationInterval = null;
-            this.logger.info('Simulación de carga detenida');
+    stopChargingSimulation(connectorId) {
+        if (this.chargingSimulationIntervals[connectorId]) {
+            clearInterval(this.chargingSimulationIntervals[connectorId]);
+            delete this.chargingSimulationIntervals[connectorId];
+            this.logger.info(`Simulación de carga detenida en conector ${connectorId}`);
         }
     }
 
     /**
-     * Iniciar envío periódico de MeterValues
+     * Iniciar envío periódico de MeterValues para todos los conectores activos
      */
     startMeterValueInterval() {
         const interval = parseInt(this.state.configuration.MeterValueSampleInterval) || 60;
@@ -403,7 +417,10 @@ class ChargerSimulator {
         }
 
         this.meterValueInterval = setInterval(() => {
-            this.sendMeterValues();
+            // Enviar MeterValues para cada conector con transacción activa
+            Object.keys(this.state.activeTransactions).forEach(connectorId => {
+                this.sendMeterValues(parseInt(connectorId));
+            });
         }, interval * 1000);
 
         this.logger.info(`MeterValues iniciado cada ${interval} segundos`);
@@ -429,9 +446,9 @@ class ChargerSimulator {
 
         this.logger.info(`RemoteStartTransaction recibido - Conector: ${connectorId}, IdTag: ${idTag}`);
 
-        // Verificar si ya hay una transacción activa
-        if (this.state.activeTransaction) {
-            this.logger.warn('Ya hay una transacción activa');
+        // Verificar si ya hay una transacción activa en ESTE conector
+        if (this.state.activeTransactions[connectorId]) {
+            this.logger.warn(`Ya hay una transacción activa en conector ${connectorId}`);
             this.client.callResult(messageId, { status: 'Rejected' });
             return;
         }
@@ -470,8 +487,16 @@ class ChargerSimulator {
 
         this.logger.info(`RemoteStopTransaction recibido - TransactionId: ${transactionId}`);
 
-        // Verificar si la transacción existe
-        if (!this.state.activeTransaction || this.state.activeTransaction.transactionId !== transactionId) {
+        // Buscar la transacción en todos los conectores
+        let connectorId = null;
+        for (const [cId, transaction] of Object.entries(this.state.activeTransactions)) {
+            if (transaction.transactionId === transactionId) {
+                connectorId = parseInt(cId);
+                break;
+            }
+        }
+
+        if (connectorId === null) {
             this.logger.warn(`Transacción ${transactionId} no encontrada`);
             this.client.callResult(messageId, { status: 'Rejected' });
             return;
@@ -481,7 +506,7 @@ class ChargerSimulator {
         this.client.callResult(messageId, { status: 'Accepted' });
 
         // Detener la transacción
-        await this.sendStopTransaction('Remote');
+        await this.sendStopTransaction(connectorId, 'Remote');
     }
 
     /**
@@ -503,8 +528,8 @@ class ChargerSimulator {
             this.state.configuration.MeterValueSampleInterval = value;
             this.logger.info(`MeterValueSampleInterval actualizado a ${value} segundos`);
 
-            // Si hay una transacción activa, reiniciar el intervalo de MeterValues
-            if (this.state.activeTransaction) {
+            // Si hay al menos una transacción activa, reiniciar el intervalo de MeterValues
+            if (Object.keys(this.state.activeTransactions).length > 0) {
                 this.stopMeterValueInterval();
                 this.startMeterValueInterval();
             }
@@ -565,7 +590,7 @@ class ChargerSimulator {
         const status = this.state.connectors[connectorId].status;
 
         // No se puede desconectar si hay una transacción activa en este conector
-        if (this.state.activeTransaction && this.state.activeTransaction.connectorId === connectorId) {
+        if (this.state.activeTransactions[connectorId]) {
             if (status === ConnectorStatus.CHARGING) {
                 this.logger.warn(`No se puede desconectar el conector ${connectorId} mientras está cargando. Usa 'stop' primero.`);
                 return;
@@ -592,8 +617,8 @@ class ChargerSimulator {
             return;
         }
         
-        if (this.state.activeTransaction) {
-            this.logger.warn('Ya hay una transacción activa');
+        if (this.state.activeTransactions[connectorId]) {
+            this.logger.warn(`Ya hay una transacción activa en conector ${connectorId}`);
             return;
         }
 
@@ -618,19 +643,23 @@ class ChargerSimulator {
      * Simular fin de carga local (para testing)
      */
     async simulateLocalStopTransaction(connectorId = null) {
-        if (!this.state.activeTransaction) {
-            this.logger.warn('No hay transacción activa');
-            return;
+        // Si no se especifica connectorId, usar el primer conector con transacción activa
+        if (connectorId === null) {
+            const activeConnectors = Object.keys(this.state.activeTransactions).map(id => parseInt(id));
+            if (activeConnectors.length === 0) {
+                this.logger.warn('No hay transacciones activas');
+                return;
+            }
+            connectorId = activeConnectors[0];
         }
 
-        // Si se especifica un connectorId, verificar que coincida con la transacción activa
-        if (connectorId !== null && this.state.activeTransaction.connectorId !== connectorId) {
+        if (!this.state.activeTransactions[connectorId]) {
             this.logger.warn(`No hay transacción activa en el conector ${connectorId}`);
             return;
         }
 
-        this.logger.info('Simulando fin de carga local');
-        await this.sendStopTransaction('Local');
+        this.logger.info(`Simulando fin de carga local en conector ${connectorId}`);
+        await this.sendStopTransaction(connectorId, 'Local');
     }
 }
 

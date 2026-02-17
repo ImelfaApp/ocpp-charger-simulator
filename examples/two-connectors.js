@@ -99,8 +99,13 @@ async function main() {
         console.log('📊 Estado final del simulador:');
         console.log('  Conector 1:', simulator.state.connectors[1].status);
         console.log('  Conector 2:', simulator.state.connectors[2].status);
-        console.log('  Transacción activa:', simulator.state.activeTransaction ? 'Sí' : 'No');
-        console.log('  MeterValue:', Math.round(simulator.state.meterValue), 'Wh');
+        const activeTransactions = Object.keys(simulator.state.activeTransactions);
+        console.log('  Transacciones activas:', activeTransactions.length);
+        if (activeTransactions.length > 0) {
+            activeTransactions.forEach(connId => {
+                console.log(`    - Conector ${connId}:`, Math.round(simulator.state.meterValues[connId]), 'Wh');
+            });
+        }
         
         console.log('\n✅ Ejemplo completado exitosamente');
         

@@ -143,8 +143,8 @@ describe('OCPP Backend Integration Tests', () => {
         await new Promise(resolve => setTimeout(resolve, 2000));
 
         // Verificar estado
-        expect(simulator.state.activeTransaction).toBeTruthy();
-        expect(simulator.state.activeTransaction.idTag).toBe('CARD123');
+        expect(simulator.state.activeTransactions[1]).toBeTruthy();
+        expect(simulator.state.activeTransactions[1].idTag).toBe('CARD123');
     });
 
     it('should send MeterValues during charging', (done) => {
