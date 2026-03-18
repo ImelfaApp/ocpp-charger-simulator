@@ -1,18 +1,20 @@
+const chargePointId = process.env.CHARGE_POINT_ID || "VC20241100618";
+//const chargePointId = process.env.CHARGE_POINT_ID || '123456789d';
+
 module.exports = {
   // Configuración de conexión al servidor OCPP
   server: {
-    url: process.env.OCPP_SERVER_URL || "ws://localhost:8080/ocpp/",
+    url: process.env.OCPP_SERVER_URL || "ws://ocpp.imelfa.com:8082/ocpp/",
+    //url: process.env.OCPP_SERVER_URL || "ws://localhost:8080/ocpp/",
     // El chargePointId se añadirá al final de la URL
   },
 
   // Identificación del punto de carga
   chargePoint: {
-    id: process.env.CHARGE_POINT_ID || "TEST-CHARGER-001",
-    //id: process.env.CHARGE_POINT_ID || '123456789d',
+    id: chargePointId,
     vendor: "SimulatorVendor",
     model: "VirtualCharger",
-    serialNumber: "TEST-CHARGER-001",
-    //serialNumber: '123456789d',
+    serialNumber: chargePointId,
     firmwareVersion: "1.0.0",
     numberOfConnectors: 2, // Número de conectores (1 o 2)
   },

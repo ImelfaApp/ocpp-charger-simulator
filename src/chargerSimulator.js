@@ -155,6 +155,9 @@ class ChargerSimulator {
             case 'ChangeConfiguration':
                 this.handleChangeConfiguration(messageId, payload);
                 break;
+            case 'DataTransfer':
+                this.handleDataTransfer(messageId, payload);
+                break;
             default:
                 this.logger.warn(`Acción no soportada: ${action}`);
                 this.client.callError(messageId, 'NotImplemented', `Action ${action} is not implemented`);
@@ -469,8 +472,8 @@ class ChargerSimulator {
         if (connectorStatus === ConnectorStatus.AVAILABLE) {
             this.logger.info(`RemoteStart aceptado. Esperando conexión de vehículo en conector ${connectorId}...`);
             this.state.pendingRemoteStart[connectorId] = { idTag };
-            // Cambiar a Reserved para indicar que hay una carga pendiente
-            await this.sendStatusNotification(connectorId, ConnectorStatus.RESERVED);
+            // Cambiar a Preparing para indicar que hay una carga pendiente esperando conexión del vehículo
+            await this.sendStatusNotification(connectorId, ConnectorStatus.PREPARING);
             return;
         }
 
@@ -541,6 +544,12 @@ class ChargerSimulator {
         }
     }
 
+    handleDataTransfer(messageId, payload) {
+        const { vendorId, messageId: dataMessageId, data } = payload;
+        this.logger.info(`DataTransfer recibido - VendorId: ${vendorId}, MessageId: ${dataMessageId}`);
+        this.client.callResult(messageId, { status: 'Accepted' });
+    }
+
     // ==================== Métodos de utilidad para testing manual ====================
 
     /**
@@ -555,14 +564,17 @@ class ChargerSimulator {
 
         const status = this.state.connectors[connectorId].status;
 
-        // Permitir plug desde Available o Reserved
-        if (status !== ConnectorStatus.AVAILABLE && status !== ConnectorStatus.RESERVED) {
+        // Permitir plug desde Available o Preparing (con RemoteStart pendiente)
+        if (status !== ConnectorStatus.AVAILABLE && status !== ConnectorStatus.PREPARING) {
             this.logger.warn(`Conector ${connectorId} no está disponible. Estado actual: ${status}`);
             return;
         }
 
         this.logger.info(`Simulando conexión de vehículo en conector ${connectorId}`);
-        await this.sendStatusNotification(connectorId, ConnectorStatus.PREPARING);
+        // Si ya está en Preparing (RemoteStart pendiente), no reenviar StatusNotification
+        if (status !== ConnectorStatus.PREPARING) {
+            await this.sendStatusNotification(connectorId, ConnectorStatus.PREPARING);
+        }
 
         // Si hay un RemoteStart pendiente, iniciar la transacción automáticamente
         if (this.state.pendingRemoteStart[connectorId]) {
