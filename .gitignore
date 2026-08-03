@@ -32,3 +32,6 @@ Thumbs.db
 # Build output
 dist/
 build/
+
+# PR description
+docs/PR_DESCRIPTION.md
