@@ -601,11 +601,16 @@ class ChargerSimulator {
 
         const status = this.state.connectors[connectorId].status;
 
-        // No se puede desconectar si hay una transacción activa en este conector
+        // No se puede desconectar si hay una transacción activa en estado Charging
         if (this.state.activeTransactions[connectorId]) {
             if (status === ConnectorStatus.CHARGING) {
                 this.logger.warn(`No se puede desconectar el conector ${connectorId} mientras está cargando. Usa 'stop' primero.`);
                 return;
+            }
+            // Si está suspendido con transacción activa, detener la transacción antes de desconectar
+            if (status === ConnectorStatus.SUSPENDED_EV || status === ConnectorStatus.SUSPENDED_EVSE) {
+                this.logger.info(`Conector ${connectorId} suspendido con transacción activa. Enviando StopTransaction antes de desconectar...`);
+                await this.sendStopTransaction(connectorId, 'EVDisconnected');
             }
         }
 
@@ -665,6 +670,16 @@ class ChargerSimulator {
             connectorId = activeConnectors[0];
         }
 
+        const currentStatus = this.state.connectors[connectorId]?.status;
+        if (currentStatus === ConnectorStatus.SUSPENDED_EV || currentStatus === ConnectorStatus.SUSPENDED_EVSE) {
+            this.logger.warn("La carga está pausada. Usa 'resume' para continuar o 'stop' desde el estado Charging");
+            return;
+        }
+        if (currentStatus === ConnectorStatus.FINISHING) {
+            this.logger.warn("La carga ya fue detenida. Usa 'unplug' para desconectar el vehículo");
+            return;
+        }
+
         if (!this.state.activeTransactions[connectorId]) {
             this.logger.warn(`No hay transacción activa en el conector ${connectorId}`);
             return;
@@ -672,6 +687,122 @@ class ChargerSimulator {
 
         this.logger.info(`Simulando fin de carga local en conector ${connectorId}`);
         await this.sendStopTransaction(connectorId, 'Local');
+    }
+
+    /**
+     * Suspender carga por el vehículo (EV)
+     */
+    async simulateSuspendEV(connectorId = 1) {
+        if (connectorId < 1 || connectorId > this.config.chargePoint.numberOfConnectors) {
+            this.logger.warn(`Conector ${connectorId} no existe. Conectores disponibles: 1-${this.config.chargePoint.numberOfConnectors}`);
+            return;
+        }
+        const status = this.state.connectors[connectorId].status;
+        if (status !== ConnectorStatus.CHARGING) {
+            this.logger.warn(`Conector ${connectorId} no está en estado Charging. Estado actual: ${status}`);
+            return;
+        }
+        if (!this.state.activeTransactions[connectorId]) {
+            this.logger.warn(`No hay transacción activa en conector ${connectorId}`);
+            return;
+        }
+        this.stopChargingSimulation(connectorId);
+        await this.sendStatusNotification(connectorId, ConnectorStatus.SUSPENDED_EV);
+    }
+
+    /**
+     * Suspender carga por el EVSE
+     */
+    async simulateSuspendEVSE(connectorId = 1) {
+        if (connectorId < 1 || connectorId > this.config.chargePoint.numberOfConnectors) {
+            this.logger.warn(`Conector ${connectorId} no existe. Conectores disponibles: 1-${this.config.chargePoint.numberOfConnectors}`);
+            return;
+        }
+        const status = this.state.connectors[connectorId].status;
+        if (status !== ConnectorStatus.CHARGING) {
+            this.logger.warn(`Conector ${connectorId} no está en estado Charging. Estado actual: ${status}`);
+            return;
+        }
+        if (!this.state.activeTransactions[connectorId]) {
+            this.logger.warn(`No hay transacción activa en conector ${connectorId}`);
+            return;
+        }
+        this.stopChargingSimulation(connectorId);
+        await this.sendStatusNotification(connectorId, ConnectorStatus.SUSPENDED_EVSE);
+    }
+
+    /**
+     * Reanudar carga desde estado suspendido
+     */
+    async simulateResume(connectorId = 1) {
+        if (connectorId < 1 || connectorId > this.config.chargePoint.numberOfConnectors) {
+            this.logger.warn(`Conector ${connectorId} no existe. Conectores disponibles: 1-${this.config.chargePoint.numberOfConnectors}`);
+            return;
+        }
+        const status = this.state.connectors[connectorId].status;
+        if (status !== ConnectorStatus.SUSPENDED_EV && status !== ConnectorStatus.SUSPENDED_EVSE) {
+            this.logger.warn(`Conector ${connectorId} no está suspendido. Estado actual: ${status}`);
+            return;
+        }
+        if (!this.state.activeTransactions[connectorId]) {
+            this.logger.warn(`No hay transacción activa en conector ${connectorId}`);
+            return;
+        }
+        await this.sendStatusNotification(connectorId, ConnectorStatus.CHARGING);
+        this.startChargingSimulation(connectorId);
+    }
+
+    /**
+     * Forzar estado Faulted en un conector
+     */
+    async simulateFault(connectorId = 1) {
+        if (connectorId < 1 || connectorId > this.config.chargePoint.numberOfConnectors) {
+            this.logger.warn(`Conector ${connectorId} no existe. Conectores disponibles: 1-${this.config.chargePoint.numberOfConnectors}`);
+            return;
+        }
+        if (this.state.activeTransactions[connectorId]) {
+            this.logger.info(`Transacción activa en conector ${connectorId}. Deteniendo antes de fallo...`);
+            await this.sendStopTransaction(connectorId, 'EVDisconnected');
+        } else {
+            this.stopChargingSimulation(connectorId);
+        }
+        await this.sendStatusNotification(connectorId, ConnectorStatus.FAULTED, 'OtherError');
+    }
+
+    /**
+     * Forzar estado Unavailable en un conector (solo desde Available)
+     */
+    async simulateUnavailable(connectorId = 1) {
+        if (connectorId < 1 || connectorId > this.config.chargePoint.numberOfConnectors) {
+            this.logger.warn(`Conector ${connectorId} no existe. Conectores disponibles: 1-${this.config.chargePoint.numberOfConnectors}`);
+            return;
+        }
+        if (this.state.activeTransactions[connectorId]) {
+            this.logger.warn(`Conector ${connectorId} tiene una transacción activa. Usa 'stop' antes de poner el conector como unavailable.`);
+            return;
+        }
+        const status = this.state.connectors[connectorId].status;
+        if (status !== ConnectorStatus.AVAILABLE) {
+            this.logger.warn(`Conector ${connectorId} no está en estado Available. Estado actual: ${status}`);
+            return;
+        }
+        await this.sendStatusNotification(connectorId, ConnectorStatus.UNAVAILABLE);
+    }
+
+    /**
+     * Restaurar conector a Available desde Faulted o Unavailable
+     */
+    async simulateAvailable(connectorId = 1) {
+        if (connectorId < 1 || connectorId > this.config.chargePoint.numberOfConnectors) {
+            this.logger.warn(`Conector ${connectorId} no existe. Conectores disponibles: 1-${this.config.chargePoint.numberOfConnectors}`);
+            return;
+        }
+        const status = this.state.connectors[connectorId].status;
+        if (status !== ConnectorStatus.FAULTED && status !== ConnectorStatus.UNAVAILABLE) {
+            this.logger.warn(`Conector ${connectorId} no está en estado Faulted o Unavailable. Estado actual: ${status}`);
+            return;
+        }
+        await this.sendStatusNotification(connectorId, ConnectorStatus.AVAILABLE, 'NoError');
     }
 }
 
