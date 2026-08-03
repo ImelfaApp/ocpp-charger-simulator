@@ -1,11 +1,9 @@
-const chargePointId = process.env.CHARGE_POINT_ID || "VC20241100618";
-//const chargePointId = process.env.CHARGE_POINT_ID || '123456789d';
+const chargePointId = process.env.CHARGE_POINT_ID || '123456789d';
 
 module.exports = {
   // Configuración de conexión al servidor OCPP
   server: {
-    url: process.env.OCPP_SERVER_URL || "ws://ocpp.imelfa.com:8082/ocpp/",
-    //url: process.env.OCPP_SERVER_URL || "ws://localhost:8080/ocpp/",
+    url: process.env.OCPP_SERVER_URL || "ws://localhost:8080/ocpp/",
     // El chargePointId se añadirá al final de la URL
   },
 
