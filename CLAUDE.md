@@ -8,6 +8,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Install dependencies
 npm install
 
+# Copy the config template (src/config.js is gitignored, local per developer)
+cp src/config.example.js src/config.js
+
 # Run as interactive CLI simulator
 npm start
 
@@ -26,7 +29,7 @@ This is a Node.js OCPP 1.6J (JSON over WebSocket) charge point simulator with tw
 
 ### Source files
 
-- **`src/config.js`** — Single source of truth for connection/charger/simulator settings. All values can be overridden via env vars (`OCPP_SERVER_URL`, `CHARGE_POINT_ID`, `LOG_LEVEL`). The `chargePointId` is appended to the server URL at connection time (e.g. `ws://server/ocpp/CP001`).
+- **`src/config.js`** — Single source of truth for connection/charger/simulator settings. Gitignored (local per developer); copy it from `src/config.example.js` before running. All values can be overridden via env vars (`OCPP_SERVER_URL`, `CHARGE_POINT_ID`, `LOG_LEVEL`). The `chargePointId` is appended to the server URL at connection time (e.g. `ws://server/ocpp/CP001`).
 
 - **`src/ocppClient.js`** — Low-level WebSocket layer. Extends `EventEmitter`. Handles OCPP message framing (CALL=2, CALLRESULT=3, CALLERROR=4), pending-call tracking with 30s timeouts, and automatic reconnection (up to 10 attempts, 5s delay). Emits `connected`, `disconnected`, `call`, and `error` events.
 
@@ -46,4 +49,4 @@ This is a Node.js OCPP 1.6J (JSON over WebSocket) charge point simulator with tw
 
 ## Configuration
 
-Edit `src/config.js` directly to change the target server, charger identity, or simulation parameters. The `chargePointId` at the top of `config.js` is hardcoded as the active identity — commented-out alternatives are preserved as examples.
+`src/config.js` is gitignored so each developer keeps their own server URL and charge point identity locally. Start from `src/config.example.js` (`cp src/config.example.js src/config.js`) and edit `src/config.js` to change the target server, charger identity, or simulation parameters. The `chargePointId` at the top of `config.js` is hardcoded as the active identity — commented-out alternatives are preserved as examples.

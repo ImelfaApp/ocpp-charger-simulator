@@ -35,3 +35,6 @@ build/
 
 # PR description
 docs/PR_DESCRIPTION.md
+
+# Local config (usa config.example.js como plantilla)
+src/config.js
